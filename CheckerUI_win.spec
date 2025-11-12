@@ -30,8 +30,8 @@ binaries = (
 )
 
 a = Analysis(
-    ['main.py'],
-    pathex=[],
+    ['checker_ui/main.py'],  # 使用包内的入口文件
+    pathex=['.'],            # 指定当前仓库根目录为搜索路径
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
