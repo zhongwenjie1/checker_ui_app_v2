@@ -13,6 +13,9 @@ if os.path.isdir('themes'):
     extra_datas += [('themes/*.qss', 'themes')]
 if os.path.isdir('assets'):
     extra_datas += [('assets/*', 'assets')]
+# 把 ui 目录下的所有 xlsx 模板一起打包进来（包括 组合票标准版.xlsx）
+if os.path.isdir('ui'):
+    extra_datas += [('ui/*.xlsx', 'ui')]
 
 hiddenimports = collect_submodules('numpy')  # 确保 numpy 子模块
 
@@ -27,8 +30,8 @@ binaries = (
 )
 
 a = Analysis(
-    ['checker_ui/main.py'],  # 使用包内的入口文件
-    pathex=['.'],            # 指定当前仓库根目录为搜索路径
+    ['main.py'],
+    pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
