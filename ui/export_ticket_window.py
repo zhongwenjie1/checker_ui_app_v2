@@ -189,9 +189,11 @@ class ExportTicketWindow(QMainWindow):
         row_info.addStretch()
 
         # 作业手顺表（A→B 区间）
-        self.tbl_sw = QTableWidget(0, 7, self.page_single)
+        self.tbl_sw = QTableWidget(0, 8, self.page_single)
         self.tbl_sw.setHorizontalHeaderLabels([
-            "顺序", "作业名称A", "作业名称B", "手作业(秒)", "自动(秒)", "步行(秒)", "步行在前/后"
+            "顺序", "作业名称A", "作业名称B",
+            "手作业(秒)", "自动(秒)", "步行(秒)",
+            "步行在前/后", "自动在前/后"
         ])
         self.tbl_sw.horizontalHeader().setStretchLastSection(True)
         self.tbl_sw.verticalHeader().setVisible(False)
@@ -215,6 +217,7 @@ class ExportTicketWindow(QMainWindow):
         # 状态栏（用于显示导出进度 / 完成信息）
         self.status = QStatusBar()
         self.setStatusBar(self.status)
+        self._on_tab_changed(self.tabs.currentIndex())
 
     def _connect_signals(self):
         self.act_back.triggered.connect(self.go_home)
@@ -289,6 +292,11 @@ class ExportTicketWindow(QMainWindow):
         pos_cb.addItem("后置", userData="after")
         pos_cb.addItem("前置", userData="before")
         self.tbl_sw.setCellWidget(r, 6, pos_cb)
+        # 自动在前/后（默认后置）
+        auto_cb = QComboBox(self.tbl_sw)
+        auto_cb.addItem("后置", userData="after")
+        auto_cb.addItem("前置", userData="before")
+        self.tbl_sw.setCellWidget(r, 7, auto_cb)
 
     def del_single_row(self):
         """删除单人作业手顺表中的选中行"""
@@ -312,7 +320,7 @@ class ExportTicketWindow(QMainWindow):
         返回：
           project, part, worker, takt_sec, steps, totals
         其中：
-          steps: [{seq, name, name_a, name_b, manual, auto, walk, walk_pos, duration, start, end}, ...]
+          steps: [{seq, name, name_a, name_b, manual, auto, walk, walk_pos, auto_pos, duration, start, end}, ...]
           totals: {"manual": x, "auto": y, "walk": z, "total": t}
         """
         if not hasattr(self, "tbl_sw"):
@@ -369,6 +377,14 @@ class ExportTicketWindow(QMainWindow):
                 if walk_pos_data in ("before", "after"):
                     walk_pos = walk_pos_data
 
+            # 自动在前/后（默认后置）
+            auto_pos = "after"
+            auto_widget = self.tbl_sw.cellWidget(r, 7)
+            if isinstance(auto_widget, QComboBox):
+                auto_pos_data = auto_widget.currentData()
+                if auto_pos_data in ("before", "after"):
+                    auto_pos = auto_pos_data
+
             duration = manual + auto + walk
             if duration <= 0:
                 raise ValueError(f"第 {r + 1} 行『{name}』的时间合计为 0，请填写手作业/自动/步行时间。")
@@ -397,6 +413,7 @@ class ExportTicketWindow(QMainWindow):
                 "auto": auto,
                 "walk": walk,
                 "walk_pos": walk_pos,  # 步行在前/后
+                "auto_pos": auto_pos,  # 自动在前/后
                 "duration": duration,
                 "start": start,
                 "end": end,
@@ -492,6 +509,78 @@ class ExportTicketWindow(QMainWindow):
                 horizontal=old.horizontal,
             )
 
+        def _clear_top_border(row, col):
+            """
+            清除单元格的上边框（保留其余边框），合并单元格时操作左上角单元格。
+            """
+            cell = ws.cell(row=row, column=col)
+            # Handle merged cells: always operate on effective top-left cell
+            if isinstance(cell, MergedCell):
+                for mr in ws.merged_cells.ranges:
+                    if cell.coordinate in mr:
+                        cell = ws.cell(row=mr.min_row, column=mr.min_col)
+                        break
+            old = cell.border or Border()
+            cell.border = Border(
+                left=old.left,
+                right=old.right,
+                top=Side(style=None),
+                bottom=old.bottom,
+                diagonal=old.diagonal,
+                diagonal_direction=old.diagonal_direction,
+                outline=old.outline,
+                vertical=old.vertical,
+                horizontal=old.horizontal,
+            )
+
+        def _clear_left_border(row, col):
+            """
+            清除单元格的左边框（保留其余边框）；合并单元格时操作左上角单元格。
+            """
+            cell = ws.cell(row=row, column=col)
+            # Handle merged cells: always operate on effective top-left cell
+            if isinstance(cell, MergedCell):
+                for mr in ws.merged_cells.ranges:
+                    if cell.coordinate in mr:
+                        cell = ws.cell(row=mr.min_row, column=mr.min_col)
+                        break
+            old = cell.border or Border()
+            cell.border = Border(
+                left=Side(style=None),
+                right=old.right,
+                top=old.top,
+                bottom=old.bottom,
+                diagonal=old.diagonal,
+                diagonal_direction=old.diagonal_direction,
+                outline=old.outline,
+                vertical=old.vertical,
+                horizontal=old.horizontal,
+            )
+
+        def _clear_right_border(row, col):
+            """
+            清除单元格的右边框（保留其余边框）；合并单元格时操作左上角单元格。
+            """
+            cell = ws.cell(row=row, column=col)
+            # Handle merged cells: always operate on effective top-left cell
+            if isinstance(cell, MergedCell):
+                for mr in ws.merged_cells.ranges:
+                    if cell.coordinate in mr:
+                        cell = ws.cell(row=mr.min_row, column=mr.min_col)
+                        break
+            old = cell.border or Border()
+            cell.border = Border(
+                left=old.left,
+                right=Side(style=None),
+                top=old.top,
+                bottom=old.bottom,
+                diagonal=old.diagonal,
+                diagonal_direction=old.diagonal_direction,
+                outline=old.outline,
+                vertical=old.vertical,
+                horizontal=old.horizontal,
+            )
+
         # 1) 清空左侧原有数据区域
         start_row = 9
         row_span = 3
@@ -517,11 +606,16 @@ class ExportTicketWindow(QMainWindow):
                     continue
                 cell.fill = PatternFill()
 
-        # 2) 写入步骤：每步占 3 行（A9:A11, A12:A14, ...）
+          # 2) 写入步骤：每步占 3 行（A9:A11, A12:A14, ...）
         row_span = 3
-        time_start_col = 6  # F列
+        time_start_col = 6  # F列，时间轴起始列
         time_fill = PatternFill(fill_type="solid", fgColor="000000")
-        bars = []  # 记录每个黑条，用于画连线
+        # 自动：加粗虚线（仅画上边框，不填充）
+        auto_side = Side(style="mediumDashed", color="000000")
+        h_auto_border = Border(top=auto_side)
+
+        # segments：按“步骤”记录每一行的黑条起止（即手作业+自动的时间段）
+        segments = []  # [{"mid_row": int, "bar_start": int, "bar_end": int}, ...]
 
         for idx, s in enumerate(steps):
             base_row = start_row + idx * row_span
@@ -541,85 +635,115 @@ class ExportTicketWindow(QMainWindow):
             ws.cell(row=base_row, column=4).value = s["auto"]
             ws.cell(row=base_row, column=5).value = s["walk"]
 
-            # 时间条（手+自，步行空白）
+            # ===== 时间轴绘制（手作业=黑填充；自动=加粗虚线；步行仅用折线表示） =====
             start_sec = int(round(s["start"]))
-            manual_auto = float(s["manual"]) + float(s["auto"])
+            manual = float(s["manual"])
+            auto = float(s["auto"])
             walk = float(s["walk"])
             walk_pos = s.get("walk_pos", "after")
+            auto_pos = s.get("auto_pos", "after")
 
+            # 起点：若步行在前，整体右移
             if walk_pos == "before":
                 bar_start_sec = int(round(start_sec + walk))
             else:
                 bar_start_sec = start_sec
 
-            bar_end_sec = int(round(bar_start_sec + manual_auto))
+            mid_row = base_row + 1
 
-            if bar_end_sec > bar_start_sec:
-                mid_row = base_row + 1
-                for sec in range(bar_start_sec, bar_end_sec):
-                    col = time_start_col + sec
-                    _set_fill(mid_row, col, time_fill)
+            # 决定绘制顺序：自动在前/后
+            draw_seq = []
+            if auto_pos == "before":
+                if auto > 0:
+                    draw_seq.append(("auto", auto))
+                if manual > 0:
+                    draw_seq.append(("manual", manual))
+            else:
+                if manual > 0:
+                    draw_seq.append(("manual", manual))
+                if auto > 0:
+                    draw_seq.append(("auto", auto))
 
-                bars.append(
-                    {
-                        "mid_row": mid_row,
-                        "bar_start": bar_start_sec,
-                        "bar_end": bar_end_sec,
-                    }
-                )
+            seg_start = bar_start_sec
+            for kind, length in draw_seq:
+                seg_end = int(round(seg_start + length))
+                if seg_end > seg_start:
+                    for sec in range(seg_start, seg_end):
+                        col = time_start_col + sec
+                        if kind == "manual":
+                            _set_fill(mid_row, col, time_fill)        # 手作业：黑色填充
+                        else:
+                            _set_border(mid_row, col, h_auto_border)  # 自动：加粗虚线（上边框）
+                seg_start = seg_end
 
-        # 2.5) 相邻黑条之间画连接线：
-        #      - 有间隔：步行 → 虚折线，从黑条末端下端开始，先竖后横（形状参考样本图）
+            # 记录该步的整体开始/结束（不包含步行在后）
+            bar_end_sec = seg_start
+            segments.append(
+                {
+                    "mid_row": mid_row,
+                    "bar_start": bar_start_sec,
+                    "bar_end": bar_end_sec,
+                }
+            )
+
+        # 2.5) 相邻「步骤」之间画连接线：
+        #      - 有间隔：步行 → 实折线，从黑条末端右边一格开始，先竖后横
         #      - 无间隔：直接接续 → 加粗实直线
-        if len(bars) >= 2:
-            # 线条加粗一些，效果更明显
-            solid_side = Side(style="medium", color="000000")        # 加粗实线
-            walk_side = Side(style="mediumDashed", color="000000")   # 加粗虚线
+        if len(segments) >= 2:
+            solid_side = Side(style="medium", color="000000")   # 加粗实线
+            walk_side  = Side(style="medium", color="000000")   # 步行：加粗实线
 
-            h_walk_border = Border(top=walk_side)    # 水平虚线
-            v_walk_border = Border(left=walk_side)   # 垂直虚线
-            v_solid_border = Border(left=solid_side) # 垂直实线
+            h_walk_border = Border(top=walk_side)               # 步行横线
+            v_walk_left   = Border(left=walk_side)              # 竖线（当前列左边）
+            v_walk_right  = Border(right=walk_side)             # 竖线镜像（前一列右边）
+            v_solid_right_border = Border(right=solid_side)     # 无间隔直连竖线（边界线上）
 
-            for i in range(len(bars) - 1):
-                curr = bars[i]
-                nxt = bars[i + 1]
+            for i in range(len(segments) - 1):
+                curr = segments[i]
+                nxt = segments[i + 1]
 
-                mid_row_curr = curr["mid_row"]     # 当前黑条所在行（块中间行）
-                mid_row_nxt = nxt["mid_row"]       # 下一黑条所在行
+                mid_row_curr = curr["mid_row"]
+                mid_row_nxt = nxt["mid_row"]
                 bar_end_curr = curr["bar_end"]
                 bar_start_nxt = nxt["bar_start"]
 
-                # 黑条最后一格所在的列（注意 bar_end 是“结束时间”，最后一格是 bar_end-1）
-                col_end_prev = time_start_col + bar_end_curr - 1
-                col_start_next = time_start_col + bar_start_nxt
-
+                # 注意：bar_end / bar_start 是“时间（秒）”，还没加上 F 列偏移
                 if bar_start_nxt > bar_end_curr:
-                    # 有间隔：步行 → 虚折线
-                    # 右侧连接列：在黑条的“右边一格”开始
-                    col_conn = time_start_col + bar_end_curr       # 黑条最后一格的右侧列
-                    col_start_next = time_start_col + bar_start_nxt
+                    # 有间隔：步行 → 实折线
+                    # 连接策略：
+                    #   - 竖线画在“上一列的右边界”，并且只画到下一段所在行的上一行（不进入下一段单元格）
+                    #   - 横线从拐点所在列开始，沿下一段所在行的上边框一直画到下一段条形左侧
+                    first_blank_col = time_start_col + bar_end_curr        # 上一段末尾右侧的第一格
+                    next_bar_first_col = time_start_col + bar_start_nxt    # 下一段条形开始列
 
-                    # 1) 竖虚线：从当前黑条的下沿(mid_row_curr+1) 到「下一条黑条的上一行(mid_row_nxt-1)」
+                    # 1) 竖线：用上一列（first_blank_col - 1）的『右边界』画，恰好停在下一段顶边
+                    grid_col_for_right_edge = first_blank_col - 1
                     row_vert_start = mid_row_curr + 1
-                    row_vert_end = mid_row_nxt - 1
-                    if row_vert_start <= row_vert_end:
-                        for row in range(row_vert_start, row_vert_end + 1):
-                            _set_border(row, col_conn, v_walk_border)
+                    row_vert_end_exclusive = mid_row_nxt  # 不包含下一段所在行，避免出现“下垂尾巴”
+                    if grid_col_for_right_edge >= time_start_col and row_vert_start < row_vert_end_exclusive:
+                        for row in range(row_vert_start, row_vert_end_exclusive):
+                            _set_border(row, grid_col_for_right_edge, v_walk_right)
+                    # 保底清理下一行该列的右边界，避免‘下垂尾巴’
+                    _clear_right_border(mid_row_nxt, grid_col_for_right_edge)
 
-                    # 2) 水平虚线：在下一条黑条所在行，从竖线落点一直画到下一条黑条起点前一格
-                    #    即 [col_conn, col_start_next-1]，注意 range 右开区间
-                    for col in range(col_conn, col_start_next):
-                        _set_border(mid_row_nxt, col, h_walk_border)
+                    # 2) 横线：从拐点所在列开始（不跳空），一直到下一段左侧列
+                    start_h_col = first_blank_col  # 不留缺口
+                    if start_h_col < next_bar_first_col:
+                        for col in range(start_h_col, next_bar_first_col):
+                            _set_border(mid_row_nxt, col, h_walk_border)
                 else:
-                    # 无间隔或略微重叠：视为直接接续 → 加粗实直线
-                    # 连接列选在“前一条最后一格”和“下一条开始”的较大值所在列
-                    col = time_start_col + max(bar_end_curr - 1, bar_start_nxt)
+                    # 无间隔：在上一段最后一秒所在列的“右边界”连线，
+                    # 竖线落在列缝而不是下一段条形内部，且不覆盖下一段所在行
+                    boundary_col = time_start_col + bar_end_curr
                     row_top = min(mid_row_curr, mid_row_nxt)
-                    row_bottom = max(mid_row_curr, mid_row_nxt)
-                    for row in range(row_top, row_bottom + 1):
-                        _set_border(row, col, v_solid_border)
+                    row_bottom = max(mid_row_curr, mid_row_nxt) - 1
+                    if row_top <= row_bottom:
+                        for row in range(row_top, row_bottom + 1):
+                            _set_border(row, boundary_col - 1, v_solid_right_border)
+                    # 保底清理下一行该列的右边界，避免‘下垂尾巴’
+                    _clear_right_border(mid_row_nxt, boundary_col - 1)
 
-        # 3) 合计行：B49 总时间，C49 手作业总时间，D49 自动总时间，E49 步行总时间
+        # 3) 合计行：B49 总时间，C49 手作业时间，D49 自动时间，E49 步行时间
         if isinstance(totals, dict):
             total_sec = totals.get("total", 0.0)
             manual_sec = totals.get("manual", 0.0)
@@ -858,4 +982,5 @@ class ExportTicketWindow(QMainWindow):
                 steps.append({"row": r, "name": name, "zone": zone, "gate": gate, "color": color})
         if not steps:
             QMessageBox.information(self, "提示", "请先录入步骤")
+            return
        
